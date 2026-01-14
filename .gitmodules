@@ -1,0 +1,3 @@
+[submodule "3rd_party/triton_tutorial"]
+	path = 3rd_party/triton_tutorial
+	url = git@github.com:VikParuchuri/triton_tutorial.git
