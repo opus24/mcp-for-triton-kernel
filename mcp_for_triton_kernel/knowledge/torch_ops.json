@@ -1,0 +1,123 @@
+{
+  "vector_add": {
+    "torch_equivalent": "torch.add(A, B) 또는 A + B",
+    "signature": "vector_add(A: Tensor, B: Tensor) -> Tensor",
+    "description": "두 텐서의 element-wise 덧셈",
+    "input_shapes": "A와 B는 동일한 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
+    "triton_tips": "가장 기본적인 커널. 1D 블록으로 처리."
+  },
+  "vector_mul": {
+    "torch_equivalent": "torch.mul(A, B) 또는 A * B",
+    "signature": "vector_mul(A: Tensor, B: Tensor) -> Tensor",
+    "description": "두 텐서의 element-wise 곱셈",
+    "input_shapes": "A와 B는 동일한 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
+    "triton_tips": "vector_add와 동일한 패턴, 연산만 *로 변경"
+  },
+  "relu": {
+    "torch_equivalent": "torch.nn.functional.relu(x) 또는 torch.relu(x)",
+    "signature": "relu(x: Tensor) -> Tensor",
+    "description": "max(0, x) element-wise 적용",
+    "input_shapes": "임의의 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise",
+    "triton_tips": "tl.where(x > 0, x, 0) 또는 tl.maximum(x, 0) 사용"
+  },
+  "softmax": {
+    "torch_equivalent": "torch.nn.functional.softmax(x, dim=-1)",
+    "signature": "softmax(x: Tensor, dim: int = -1) -> Tensor",
+    "description": "exp(x - max(x)) / sum(exp(x - max(x)))",
+    "input_shapes": "보통 (batch, seq_len, hidden) 또는 (batch, hidden)",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N) per row",
+    "memory_pattern": "row-wise reduction 필요",
+    "triton_tips": "수치 안정성을 위해 max를 먼저 빼야 함. 3-pass: max, sum, divide"
+  },
+  "layer_norm": {
+    "torch_equivalent": "torch.nn.functional.layer_norm(x, normalized_shape, weight, bias)",
+    "signature": "layer_norm(x: Tensor, weight: Tensor, bias: Tensor, eps: float = 1e-5) -> Tensor",
+    "description": "(x - mean) / sqrt(var + eps) * weight + bias",
+    "input_shapes": "x: (batch, ..., hidden), weight/bias: (hidden,)",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N) per row",
+    "memory_pattern": "row-wise reduction (mean, var 계산)",
+    "triton_tips": "Welford 알고리즘으로 mean/var 동시 계산 가능"
+  },
+  "matmul": {
+    "torch_equivalent": "torch.matmul(A, B) 또는 A @ B",
+    "signature": "matmul(A: Tensor, B: Tensor) -> Tensor",
+    "description": "행렬 곱셈",
+    "input_shapes": "A: (M, K), B: (K, N)",
+    "output_shape": "(M, N)",
+    "complexity": "O(M * N * K)",
+    "memory_pattern": "타일링 필요, shared memory 활용",
+    "triton_tips": "BLOCK_M, BLOCK_N, BLOCK_K로 3D 타일링. tl.dot 사용."
+  },
+  "dropout": {
+    "torch_equivalent": "torch.nn.functional.dropout(x, p, training)",
+    "signature": "dropout(x: Tensor, p: float, training: bool) -> Tensor",
+    "description": "학습 중 p 확률로 요소를 0으로 설정하고 1/(1-p)로 스케일",
+    "input_shapes": "임의의 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise with random",
+    "triton_tips": "tl.rand로 랜덤 생성, philox RNG 시드 필요"
+  },
+  "gelu": {
+    "torch_equivalent": "torch.nn.functional.gelu(x)",
+    "signature": "gelu(x: Tensor) -> Tensor",
+    "description": "x * 0.5 * (1 + erf(x / sqrt(2)))",
+    "input_shapes": "임의의 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise",
+    "triton_tips": "근사 버전: x * sigmoid(1.702 * x) 또는 정확한 erf 버전"
+  },
+  "attention": {
+    "torch_equivalent": "torch.nn.functional.scaled_dot_product_attention(Q, K, V)",
+    "signature": "attention(Q: Tensor, K: Tensor, V: Tensor, scale: float) -> Tensor",
+    "description": "softmax(Q @ K.T * scale) @ V",
+    "input_shapes": "Q: (B, H, S, D), K: (B, H, S, D), V: (B, H, S, D)",
+    "output_shape": "(B, H, S, D)",
+    "complexity": "O(S^2 * D)",
+    "memory_pattern": "Flash Attention 패턴 권장",
+    "triton_tips": "온라인 softmax로 메모리 O(S) 달성 가능"
+  },
+  "cross_entropy": {
+    "torch_equivalent": "torch.nn.functional.cross_entropy(input, target)",
+    "signature": "cross_entropy(input: Tensor, target: Tensor) -> Tensor",
+    "description": "-log(softmax(input)[target])",
+    "input_shapes": "input: (N, C), target: (N,)",
+    "output_shape": "scalar 또는 (N,)",
+    "complexity": "O(N * C)",
+    "memory_pattern": "row-wise reduction",
+    "triton_tips": "softmax와 log를 fuse하여 한 번에 처리"
+  },
+  "sum": {
+    "torch_equivalent": "torch.sum(x, dim=...)",
+    "signature": "sum(x: Tensor, dim: int = None) -> Tensor",
+    "description": "지정된 차원을 따라 합계",
+    "input_shapes": "임의의 shape",
+    "output_shape": "dim이 제거된 shape",
+    "complexity": "O(N)",
+    "memory_pattern": "reduction",
+    "triton_tips": "tl.sum 사용, 큰 reduction은 2-pass 필요할 수 있음"
+  },
+  "mean": {
+    "torch_equivalent": "torch.mean(x, dim=...)",
+    "signature": "mean(x: Tensor, dim: int = None) -> Tensor",
+    "description": "지정된 차원을 따라 평균",
+    "input_shapes": "임의의 shape",
+    "output_shape": "dim이 제거된 shape",
+    "complexity": "O(N)",
+    "memory_pattern": "reduction",
+    "triton_tips": "sum / count, count는 컴파일 타임에 알 수 있으면 좋음"
+  }
+}
+

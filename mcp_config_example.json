@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "triton-kernel": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/path/to/mcp-for-triton-kernel",
+        "python",
+        "-m",
+        "mcp_for_triton_kernel.server"
+      ]
+    }
+  }
+}
+
