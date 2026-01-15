@@ -19,6 +19,16 @@
     "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
     "triton_tips": "vector_add와 동일한 패턴, 연산만 *로 변경"
   },
+  "vector_div": {
+    "torch_equivalent": "torch.div(A, B) 또는 A / B",
+    "signature": "vector_div(A: Tensor, B: Tensor) -> Tensor",
+    "description": "두 텐서의 element-wise 나눗셈",
+    "input_shapes": "A와 B는 동일한 shape",
+    "output_shape": "입력과 동일",
+    "complexity": "O(N)",
+    "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
+    "triton_tips": "vector_mul과 동일한 패턴, 연산만 /로 변경. 0으로 나누기 주의."
+  },
   "relu": {
     "torch_equivalent": "torch.nn.functional.relu(x) 또는 torch.relu(x)",
     "signature": "relu(x: Tensor) -> Tensor",
@@ -120,4 +130,3 @@
     "triton_tips": "sum / count, count는 컴파일 타임에 알 수 있으면 좋음"
   }
 }
-
