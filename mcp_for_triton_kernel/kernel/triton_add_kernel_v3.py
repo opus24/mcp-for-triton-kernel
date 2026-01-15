@@ -61,8 +61,10 @@ def solve(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     output = torch.empty_like(a)
     N = a.numel()
 
-    # Use lambda for grid to support autotune
-    grid = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE"]),)
+    # Use function for grid to support autotune
+    def grid(meta):
+        return (triton.cdiv(N, meta["BLOCK_SIZE"]),)
+
     add_kernel[grid](a, b, output, N)
 
     return output

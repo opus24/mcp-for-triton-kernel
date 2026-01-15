@@ -46,7 +46,9 @@ def solve(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     N = a.numel()
     BLOCK_SIZE = 256
 
-    grid = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE"]),)
+    def grid(meta):
+        return (triton.cdiv(N, meta["BLOCK_SIZE"]),)
+
     add_kernel[grid](a, b, output, N, BLOCK_SIZE=BLOCK_SIZE)
 
     return output

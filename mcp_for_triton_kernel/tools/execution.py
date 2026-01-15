@@ -63,7 +63,9 @@ Triton 커널 실행에는 CUDA GPU가 필요합니다.
                 "current_device": torch.cuda.current_device(),
                 "memory_allocated": f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB",
                 "memory_reserved": f"{torch.cuda.memory_reserved() / 1024**3:.2f} GB",
-                "max_memory": f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB",
+                "max_memory": (
+                    f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB"
+                ),
             }
 
             return f"""✅ GPU 사용 가능
@@ -266,7 +268,11 @@ stderr:
                     state.transition_to(
                         Status.WRITE, f"검증 통과했지만 최소 {remaining}번 더 write 필요"
                     )
-                    transition_info = f"\n\n🔄 상태 전환: evaluation → write\n검증 통과했지만, 최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
+                    transition_info = (
+                        f"\n\n🔄 상태 전환: evaluation → write\n"
+                        f"검증 통과했지만, 최소 {remaining}번 더 write가 필요합니다. "
+                        f"추가 최적화를 진행하세요."
+                    )
             else:
                 # Validation failed - transition back to write
                 state.transition_to(Status.WRITE, "검증 실패")
@@ -381,7 +387,10 @@ stderr:
                 state.transition_to(
                     Status.WRITE, f"벤치마크 완료, 최소 {remaining}번 더 write 필요"
                 )
-                transition_info = f"\n\n🔄 상태 전환: evaluation → write\n최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
+                transition_info = (
+                    f"\n\n🔄 상태 전환: evaluation → write\n"
+                    f"최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
+                )
 
         output = f"""📊 벤치마크 결과
 

@@ -149,7 +149,9 @@ def register_workflow_tools(mcp: FastMCP) -> None:
             log_info = f"\n\n로그 파일: {state.md_log_file}"
 
         context_info = f"""
-Context 사용량: {context_mgr.get_usage_ratio() * 100:.1f}% ({context_mgr.estimated_tokens:,} / {context_mgr.max_context_tokens:,} tokens)
+Context 사용량: {context_mgr.get_usage_ratio() * 100:.1f}% "
+            f"({context_mgr.estimated_tokens:,} / "
+            f"{context_mgr.max_context_tokens:,} tokens)
 도구 호출 횟수: {context_mgr.tool_call_count}
 """
 
@@ -243,7 +245,13 @@ Context 사용량: {context_mgr.get_usage_ratio() * 100:.1f}% ({context_mgr.esti
 
         status_msg = ""
         if state.get_status() == Status.START:
-            status_msg = "\n\n이제 정보 수집을 진행하세요:\n1. get_overview() - 전체 프로세스 파악\n2. get_torch_op_info() - 연산 정보 확인\n3. get_triton_syntax() - Triton 문법 참고\n4. check_gpu_status() - GPU 확인"
+            status_msg = (
+                "\n\n이제 정보 수집을 진행하세요:\n"
+                "1. get_overview() - 전체 프로세스 파악\n"
+                "2. get_torch_op_info() - 연산 정보 확인\n"
+                "3. get_triton_syntax() - Triton 문법 참고\n"
+                "4. check_gpu_status() - GPU 확인"
+            )
         elif state.get_status() == Status.WRITE:
             status_msg = "\n\n이제 write_kernel_code()로 커널 코드를 작성하세요."
 
@@ -478,7 +486,8 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
             if state.write_count < state.min_write_count:
                 remaining = state.min_write_count - state.write_count
                 state.transition_to(
-                    Status.WRITE, f"시간 측정 완료, 최소 {remaining}번 더 write 필요"
+                    Status.WRITE,
+                    f"시간 측정 완료, 최소 {remaining}번 더 write 필요",
                 )
                 transition_info = f"\n\n🔄 상태 전환: evaluation → write\n최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
 
@@ -531,7 +540,10 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
             min_time = f"{kv.min_time_ms:.4f}" if kv.min_time_ms else "-"
             is_best = " 🏆" if kv.version == best.version else ""
             filename = Path(kv.kernel_file).name if kv.kernel_file else "-"
-            comparison += f"| v{kv.version}{is_best} | {validated} | {mean_time} | {min_time} | {filename} |\n"
+            comparison += (
+                f"| v{kv.version}{is_best} | {validated} | "
+                f"{mean_time} | {min_time} | {filename} |\n"
+            )
 
         return f"""🏆 최고 성능 커널
 
@@ -570,7 +582,11 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
         state = get_state_manager()
 
         if state.get_status() != Status.EVALUATION:
-            return f"❌ 현재 상태({state.get_status_str()})에서는 이 도구를 사용할 수 없습니다.\nevaluation 상태에서만 사용 가능합니다."
+            return (
+                f"❌ 현재 상태({state.get_status_str()})에서는 "
+                f"이 도구를 사용할 수 없습니다.\n"
+                f"evaluation 상태에서만 사용 가능합니다."
+            )
 
         state.transition_to(Status.WRITE, "수동 전환: 추가 최적화")
 

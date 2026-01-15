@@ -74,7 +74,9 @@ class StateManager:
         # mcp_for_triton_kernel 디렉토리 (현재 패키지 디렉토리)
         self.package_dir = Path(__file__).parent
 
-        # 디렉토리 설정: mcp_for_triton_kernel/log/, mcp_for_triton_kernel/kernel/, mcp_for_triton_kernel/tests/
+        # 디렉토리 설정:
+        # mcp_for_triton_kernel/log/, mcp_for_triton_kernel/kernel/,
+        # mcp_for_triton_kernel/tests/
         self.log_dir = self.package_dir / "log"
         self.kernel_dir = self.package_dir / "kernel"
         self.tests_dir = self.package_dir / "tests"
@@ -184,7 +186,8 @@ class StateManager:
             if not self.first_write_reached:
                 self.first_write_reached = True
             self._append_md_log(
-                f"### [{datetime.now().strftime('%H:%M:%S')}] 상태 전환: start → write\n\n모든 정보 수집 완료\n\n"
+                f"### [{datetime.now().strftime('%H:%M:%S')}] "
+                f"상태 전환: start → write\n\n모든 정보 수집 완료\n\n"
             )
 
     def transition_to(self, new_status: Status, reason: str = "") -> bool:
@@ -218,7 +221,8 @@ class StateManager:
 
         self.status = new_status
         self._append_md_log(
-            f"### [{datetime.now().strftime('%H:%M:%S')}] 상태 전환: {old_status.value} → {new_status.value}\n\n{reason}\n\n"
+            f"### [{datetime.now().strftime('%H:%M:%S')}] "
+            f"상태 전환: {old_status.value} → {new_status.value}\n\n{reason}\n\n"
         )
         return True
 
