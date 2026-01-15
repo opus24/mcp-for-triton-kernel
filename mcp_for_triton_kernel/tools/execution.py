@@ -1,10 +1,11 @@
 """Execution and validation tools for Triton kernels."""
 
-import json
 from typing import Optional, Any
+from pathlib import Path
 
 from fastmcp import FastMCP
 
+from ..state import Status, get_state_manager, log_tool_call
 from ..utils.runner import TritonRunner
 
 
@@ -24,23 +25,35 @@ def register_execution_tools(mcp: FastMCP) -> None:
     """Register execution and validation tools to the MCP server."""
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
     def check_gpu_status() -> str:
         """
         GPU 상태를 확인합니다.
         
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
         Triton 커널 실행 전에 GPU 가용성을 확인하세요.
         
         Returns:
             GPU 상태 정보 (가용성, 디바이스명, 메모리 등)
         """
+        state = get_state_manager()
+        state.mark_info_collected("check_gpu_status")
+        
         runner = get_runner()
         
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
+        
         if not runner.gpu_available:
-            return """⚠️ GPU를 사용할 수 없습니다.
+            return f"""⚠️ GPU를 사용할 수 없습니다.
 
 Triton 커널 실행에는 CUDA GPU가 필요합니다.
 현재 환경에서는 코드 작성만 가능하고, 실행은 GPU 환경에서 해야 합니다.
-"""
+{status_hint}"""
         
         try:
             import torch
@@ -63,21 +76,23 @@ Triton 커널 실행에는 CUDA GPU가 필요합니다.
 할당된 메모리: {gpu_info['memory_allocated']}
 예약된 메모리: {gpu_info['memory_reserved']}
 총 메모리: {gpu_info['max_memory']}
-"""
+{status_hint}"""
         except Exception as e:
-            return f"GPU 상태 확인 중 오류: {e}"
+            return f"GPU 상태 확인 중 오류: {e}{status_hint}"
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.WRITE, Status.EVALUATION])
     def run_triton_kernel(
-        code: str,
         test_input_code: str,
         entry_function: str = "solve",
     ) -> str:
         """
-        Triton 커널 코드를 실행합니다.
+        현재 버전의 Triton 커널을 실행합니다.
+        
+        이 도구는 'write' 또는 'evaluation' 상태에서 사용할 수 있습니다.
+        kernel/ 디렉토리에 저장된 최신 커널 파일을 실행합니다.
         
         Args:
-            code: Triton 커널과 solve 함수가 포함된 전체 Python 코드
             test_input_code: 테스트 입력을 생성하는 Python 코드
                             변수 'args'와 'kwargs'를 정의해야 함
                             예: "args = [torch.randn(1024, device='cuda')]"
@@ -85,37 +100,8 @@ Triton 커널 실행에는 CUDA GPU가 필요합니다.
         
         Returns:
             실행 결과 (성공 시 출력 정보, 실패 시 에러 메시지)
-        
-        Example:
-            code = '''
-            import torch
-            import triton
-            import triton.language as tl
-            
-            @triton.jit
-            def add_kernel(a_ptr, b_ptr, c_ptr, N, BLOCK: tl.constexpr):
-                idx = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
-                mask = idx < N
-                a = tl.load(a_ptr + idx, mask=mask)
-                b = tl.load(b_ptr + idx, mask=mask)
-                tl.store(c_ptr + idx, a + b, mask=mask)
-            
-            def solve(a, b):
-                c = torch.empty_like(a)
-                N = a.numel()
-                grid = lambda meta: (triton.cdiv(N, meta["BLOCK"]),)
-                add_kernel[grid](a, b, c, N, BLOCK=256)
-                return c
-            '''
-            
-            test_input_code = '''
-            import torch
-            a = torch.randn(1024, device='cuda')
-            b = torch.randn(1024, device='cuda')
-            args = [a, b]
-            kwargs = {}
-            '''
         """
+        state = get_state_manager()
         runner = get_runner()
         
         if not runner.gpu_available:
@@ -123,9 +109,12 @@ Triton 커널 실행에는 CUDA GPU가 필요합니다.
 
 GPU가 없어서 커널을 실행할 수 없습니다.
 GPU 환경에서 다시 시도하세요.
-
-코드가 문법적으로 올바른지는 확인할 수 있습니다:
-""" + _syntax_check(code)
+"""
+        
+        # 현재 커널 버전 가져오기
+        latest_kernel = state.get_latest_kernel()
+        if latest_kernel is None:
+            return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
         
         # Parse test inputs
         try:
@@ -148,13 +137,20 @@ kwargs = {{}}
 ```
 """
         
-        # Run kernel
-        result = runner.execute_code(code, entry_function, args, kwargs)
+        # 파일에서 커널 실행
+        result = runner.execute_from_file(
+            latest_kernel.kernel_file,
+            entry_function,
+            args,
+            kwargs,
+        )
         
         if result.success:
             output_info = _describe_output(result.output)
             return f"""✅ 실행 성공
 
+커널 버전: v{latest_kernel.version}
+커널 파일: {latest_kernel.kernel_file}
 실행 시간: {result.execution_time_ms:.3f} ms
 
 출력:
@@ -166,6 +162,9 @@ stdout:
         else:
             return f"""❌ 실행 실패
 
+커널 버전: v{latest_kernel.version}
+커널 파일: {latest_kernel.kernel_file}
+
 에러 타입: {result.error_type}
 에러 메시지: {result.error}
 
@@ -174,18 +173,20 @@ stderr:
 """
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.WRITE, Status.EVALUATION])
     def validate_correctness(
-        kernel_code: str,
         reference_code: str,
         test_input_code: str,
         rtol: float = 1e-5,
         atol: float = 1e-8,
     ) -> str:
         """
-        Triton 커널 출력을 PyTorch 참조 구현과 비교하여 정확성을 검증합니다.
+        현재 버전의 Triton 커널 출력을 PyTorch 참조 구현과 비교하여 정확성을 검증합니다.
+        
+        이 도구는 'write' 또는 'evaluation' 상태에서 사용할 수 있습니다.
+        'evaluation' 상태에서 검증 통과 시 상태 전환이 발생할 수 있습니다.
         
         Args:
-            kernel_code: Triton 커널 코드 (solve 함수 포함)
             reference_code: PyTorch 참조 구현 코드 (reference 함수 포함)
             test_input_code: 테스트 입력 생성 코드 (args, kwargs 정의)
             rtol: 상대 허용 오차 (기본값: 1e-5)
@@ -193,30 +194,17 @@ stderr:
         
         Returns:
             검증 결과 (통과/실패, 차이 통계)
-        
-        Example:
-            kernel_code = '''
-            # ... triton kernel code with solve() function ...
-            '''
-            
-            reference_code = '''
-            import torch
-            def reference(a, b):
-                return a + b
-            '''
-            
-            test_input_code = '''
-            import torch
-            a = torch.randn(1024, device='cuda')
-            b = torch.randn(1024, device='cuda')
-            args = [a, b]
-            kwargs = {}
-            '''
         """
+        state = get_state_manager()
         runner = get_runner()
         
         if not runner.gpu_available:
             return "❌ GPU가 없어서 검증을 수행할 수 없습니다."
+        
+        # 현재 커널 버전 가져오기
+        latest_kernel = state.get_latest_kernel()
+        if latest_kernel is None:
+            return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
         
         # Parse test inputs
         try:
@@ -227,11 +215,17 @@ stderr:
         except Exception as e:
             return f"❌ 테스트 입력 코드 오류: {e}"
         
-        # Run triton kernel
-        triton_result = runner.execute_code(kernel_code, "solve", args, kwargs)
+        # 파일에서 Triton 커널 실행
+        triton_result = runner.execute_from_file(
+            latest_kernel.kernel_file,
+            "solve",
+            args,
+            kwargs,
+        )
         if not triton_result.success:
             return f"""❌ Triton 커널 실행 실패
 
+커널 파일: {latest_kernel.kernel_file}
 에러: {triton_result.error}
 {triton_result.stderr}
 """
@@ -256,16 +250,42 @@ stderr:
         if validation.error:
             return f"❌ 검증 중 오류: {validation.error}"
         
+        # Update kernel validation status
+        details = f"최대 차이: {validation.max_diff:.2e}, 평균 차이: {validation.mean_diff:.2e}"
+        state.update_kernel_validation(latest_kernel.version, validation.passed, details)
+        
+        # Handle state transitions in evaluation state
+        transition_info = ""
+        if state.get_status() == Status.EVALUATION:
+            if validation.passed:
+                if state.write_count >= state.min_write_count:
+                    # Can transition to end
+                    state.transition_to(Status.END, "검증 통과 + 최소 write 조건 충족")
+                    transition_info = "\n\n🎉 상태 전환: evaluation → end\n모든 조건을 충족했습니다! get_best_kernel()을 호출하세요."
+                else:
+                    remaining = state.min_write_count - state.write_count
+                    transition_info = f"\n\n📝 검증 통과했지만, 최소 {remaining}번 더 write가 필요합니다.\nforce_transition_to_write()를 호출하여 추가 최적화를 진행하세요."
+            else:
+                # Validation failed - transition back to write
+                state.transition_to(Status.WRITE, "검증 실패")
+                transition_info = "\n\n🔄 상태 전환: evaluation → write\n검증 실패로 코드 수정이 필요합니다."
+        
         if validation.passed:
             return f"""✅ 검증 통과
+
+커널 버전: v{latest_kernel.version}
+커널 파일: {latest_kernel.kernel_file}
 
 최대 차이: {validation.max_diff:.2e}
 평균 차이: {validation.mean_diff:.2e}
 전체 요소: {validation.total_elements:,}
 허용 오차: rtol={rtol}, atol={atol}
-"""
+{transition_info}"""
         else:
             return f"""❌ 검증 실패
+
+커널 버전: v{latest_kernel.version}
+커널 파일: {latest_kernel.kernel_file}
 
 최대 차이: {validation.max_diff:.2e}
 평균 차이: {validation.mean_diff:.2e}
@@ -273,21 +293,22 @@ stderr:
 허용 오차: rtol={rtol}, atol={atol}
 
 팁: fp16 사용 시 rtol=1e-3, atol=1e-3 정도가 적절합니다.
-"""
+{transition_info}"""
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.WRITE, Status.EVALUATION])
     def benchmark_kernel(
-        kernel_code: str,
         test_input_code: str,
         reference_code: Optional[str] = None,
         warmup: int = 25,
         rep: int = 100,
     ) -> str:
         """
-        Triton 커널의 성능을 측정합니다.
+        현재 버전의 Triton 커널 성능을 측정합니다.
+        
+        이 도구는 'write' 또는 'evaluation' 상태에서 사용할 수 있습니다.
         
         Args:
-            kernel_code: Triton 커널 코드 (solve 함수 포함)
             test_input_code: 테스트 입력 생성 코드
             reference_code: (선택) 비교할 PyTorch 참조 구현
             warmup: 워밍업 실행 횟수 (기본값: 25)
@@ -296,10 +317,16 @@ stderr:
         Returns:
             성능 측정 결과 (평균, 표준편차, 최소/최대 시간)
         """
+        state = get_state_manager()
         runner = get_runner()
         
         if not runner.gpu_available:
             return "❌ GPU가 없어서 벤치마크를 수행할 수 없습니다."
+        
+        # 현재 커널 버전 가져오기
+        latest_kernel = state.get_latest_kernel()
+        if latest_kernel is None:
+            return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
         
         # Parse test inputs
         try:
@@ -320,9 +347,9 @@ stderr:
             except Exception as e:
                 return f"❌ 참조 코드 오류: {e}"
         
-        # Run benchmark
-        result = runner.benchmark(
-            kernel_code,
+        # 파일에서 커널 벤치마크
+        result = runner.benchmark_from_file(
+            latest_kernel.kernel_file,
             "solve",
             args,
             kwargs,
@@ -334,7 +361,18 @@ stderr:
         if not result.success:
             return f"❌ 벤치마크 실패: {result.error}"
         
+        # Update kernel timing
+        state.update_kernel_timing(
+            latest_kernel.version,
+            result.mean_ms,
+            result.min_ms,
+            result.max_ms,
+        )
+        
         output = f"""📊 벤치마크 결과
+
+커널 버전: v{latest_kernel.version}
+커널 파일: {latest_kernel.kernel_file}
 
 실행 횟수: {result.num_runs}
 평균: {result.mean_ms:.4f} ms
@@ -388,4 +426,3 @@ def _describe_output(output: Any) -> str:
             return str(output)[:500]
     except Exception as e:
         return f"(출력 설명 불가: {e})"
-

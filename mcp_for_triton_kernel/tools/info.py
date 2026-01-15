@@ -6,40 +6,71 @@ from typing import Optional
 from fastmcp import FastMCP
 
 from ..knowledge import load_knowledge, KNOWLEDGE_DIR
+from ..state import Status, get_state_manager, log_tool_call
 
 
 def register_info_tools(mcp: FastMCP) -> None:
     """Register information-providing tools to the MCP server."""
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
     def get_overview() -> str:
         """
         Triton 커널 개발의 전체 프로세스와 기본 구조를 설명합니다.
         
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
         커널 개발을 시작하기 전에 이 도구를 호출하여 전체적인 흐름을 파악하세요.
         
         Returns:
             Triton 커널 개발 가이드 문서
         """
-        return load_knowledge("overview.md")
+        state = get_state_manager()
+        state.mark_info_collected("get_overview")
+        
+        content = load_knowledge("overview.md")
+        
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
+        
+        return content + status_hint
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
     def get_triton_syntax() -> str:
         """
         Triton 문법, tl 함수들, 제약사항에 대한 레퍼런스를 제공합니다.
         
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
         커널 코드를 작성할 때 참고하세요.
         
         Returns:
             Triton 문법 레퍼런스 문서
         """
-        return load_knowledge("triton_syntax.md")
+        state = get_state_manager()
+        state.mark_info_collected("get_triton_syntax")
+        
+        content = load_knowledge("triton_syntax.md")
+        
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
+        
+        return content + status_hint
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
     def get_torch_op_info(op_name: Optional[str] = None) -> str:
         """
         PyTorch 연산에 대한 정보를 제공합니다.
         
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
         특정 연산명을 지정하면 해당 연산의 상세 정보를,
         지정하지 않으면 지원하는 모든 연산 목록을 반환합니다.
         
@@ -50,6 +81,9 @@ def register_info_tools(mcp: FastMCP) -> None:
         Returns:
             연산 정보 (시그니처, 설명, Triton 구현 팁 등)
         """
+        state = get_state_manager()
+        state.mark_info_collected("get_torch_op_info")
+        
         torch_ops_path = KNOWLEDGE_DIR / "torch_ops.json"
         
         if not torch_ops_path.exists():
@@ -57,6 +91,13 @@ def register_info_tools(mcp: FastMCP) -> None:
         
         with open(torch_ops_path, "r", encoding="utf-8") as f:
             ops_data = json.load(f)
+        
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
         
         if op_name is None:
             # 전체 목록 반환
@@ -67,7 +108,7 @@ def register_info_tools(mcp: FastMCP) -> None:
 
 특정 연산의 상세 정보를 보려면 op_name 인자를 지정하세요.
 예: get_torch_op_info("softmax")
-"""
+{status_hint}"""
         
         # 정규화된 이름으로 검색
         normalized_name = op_name.lower().strip()
@@ -80,8 +121,8 @@ def register_info_tools(mcp: FastMCP) -> None:
 
 유사한 연산:
 {chr(10).join(f"- {m}" for m in matches)}
-"""
-            return f"'{op_name}' 연산을 찾을 수 없습니다. get_torch_op_info()로 전체 목록을 확인하세요."
+{status_hint}"""
+            return f"'{op_name}' 연산을 찾을 수 없습니다. get_torch_op_info()로 전체 목록을 확인하세요.{status_hint}"
         
         op_info = ops_data[normalized_name]
         
@@ -112,12 +153,15 @@ def register_info_tools(mcp: FastMCP) -> None:
 
 ## Triton 구현 팁
 {op_info.get('triton_tips', 'N/A')}
-"""
+{status_hint}"""
 
     @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
     def get_kernel_template(pattern: str = "elementwise") -> str:
         """
         일반적인 Triton 커널 템플릿을 제공합니다.
+        
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
         
         Args:
             pattern: 커널 패턴 종류
@@ -349,4 +393,3 @@ def solve(input: torch.Tensor) -> torch.Tensor:
             return f"Unknown pattern: {pattern}\nAvailable patterns: {available}"
         
         return templates[pattern]
-
