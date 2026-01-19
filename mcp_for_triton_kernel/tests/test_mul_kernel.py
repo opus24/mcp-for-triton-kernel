@@ -1,11 +1,11 @@
-"""Tests for add kernel."""
+"""Tests for mul kernel."""
 
 import torch
 
 
 def reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """PyTorch reference implementation of add."""
-    return torch.add(a, b)
+    """PyTorch reference implementation of mul."""
+    return torch.mul(a, b)
 
 
 # Test case data generators
@@ -30,9 +30,9 @@ def _test_case_4_data():
 
 
 # Actual pytest tests
-def test_case_1(add_kernel):
+def test_case_1(mul_kernel):
     """Test same shape tensors."""
-    kernel_module, version = add_kernel
+    kernel_module, version = mul_kernel
     a, b = _test_case_1_data()
 
     expected = reference(a, b)
@@ -40,12 +40,12 @@ def test_case_1(add_kernel):
 
     assert torch.allclose(
         actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_1"
+    ), f"Mul kernel v{version} failed for test_case_1"
 
 
-def test_case_2(add_kernel):
+def test_case_2(mul_kernel):
     """Test larger tensors."""
-    kernel_module, version = add_kernel
+    kernel_module, version = mul_kernel
     a, b = _test_case_2_data()
 
     expected = reference(a, b)
@@ -53,12 +53,12 @@ def test_case_2(add_kernel):
 
     assert torch.allclose(
         actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_2"
+    ), f"Mul kernel v{version} failed for test_case_2"
 
 
-def test_case_3(add_kernel):
+def test_case_3(mul_kernel):
     """Test 2D tensors."""
-    kernel_module, version = add_kernel
+    kernel_module, version = mul_kernel
     a, b = _test_case_3_data()
 
     expected = reference(a, b)
@@ -66,12 +66,12 @@ def test_case_3(add_kernel):
 
     assert torch.allclose(
         actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_3"
+    ), f"Mul kernel v{version} failed for test_case_3"
 
 
-def test_case_4(add_kernel):
+def test_case_4(mul_kernel):
     """Test small tensors."""
-    kernel_module, version = add_kernel
+    kernel_module, version = mul_kernel
     a, b = _test_case_4_data()
 
     expected = reference(a, b)
@@ -79,4 +79,4 @@ def test_case_4(add_kernel):
 
     assert torch.allclose(
         actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_4"
+    ), f"Mul kernel v{version} failed for test_case_4"

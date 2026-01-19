@@ -19,6 +19,23 @@ def get_runner() -> TritonRunner:
     return _runner
 
 
+def _get_kernel_to_use(state):
+    """Get the best kernel if available, otherwise latest kernel.
+
+    This prioritizes the best performing kernel (lowest mean time)
+    but falls back to the latest kernel if no best kernel is available.
+    """
+    best_kernel = state.get_best_kernel()
+    if best_kernel is not None:
+        return best_kernel, "best"
+
+    latest_kernel = state.get_latest_kernel()
+    if latest_kernel is not None:
+        return latest_kernel, "latest"
+
+    return None, None
+
+
 def register_execution_tools(mcp: FastMCP) -> None:
     """Register execution and validation tools to the MCP server."""
 
@@ -111,10 +128,12 @@ GPU가 없어서 커널을 실행할 수 없습니다.
 GPU 환경에서 다시 시도하세요.
 """
 
-        # 현재 커널 버전 가져오기
-        latest_kernel = state.get_latest_kernel()
-        if latest_kernel is None:
+        # 현재 커널 버전 가져오기 (best 우선, 없으면 latest)
+        kernel, kernel_type = _get_kernel_to_use(state)
+        if kernel is None:
             return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
+
+        latest_kernel = kernel  # 변수명 호환성 유지
 
         # Parse test inputs
         try:
@@ -147,8 +166,10 @@ kwargs = {{}}
 
         if result.success:
             output_info = _describe_output(result.output)
+            kernel_type_label = "🏆 best" if kernel_type == "best" else "📝 latest"
             return f"""✅ 실행 성공
 
+커널 타입: {kernel_type_label}
 커널 버전: v{latest_kernel.version}
 커널 파일: {latest_kernel.kernel_file}
 실행 시간: {result.execution_time_ms:.3f} ms
@@ -201,10 +222,12 @@ stderr:
         if not runner.gpu_available:
             return "❌ GPU가 없어서 검증을 수행할 수 없습니다."
 
-        # 현재 커널 버전 가져오기
-        latest_kernel = state.get_latest_kernel()
-        if latest_kernel is None:
+        # 현재 커널 버전 가져오기 (best 우선, 없으면 latest)
+        kernel, kernel_type = _get_kernel_to_use(state)
+        if kernel is None:
             return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
+
+        latest_kernel = kernel  # 변수명 호환성 유지
 
         # Parse test inputs
         try:
@@ -280,9 +303,11 @@ stderr:
                     "\n\n🔄 상태 전환: evaluation → write\n검증 실패로 코드 수정이 필요합니다."
                 )
 
+        kernel_type_label = "🏆 best" if kernel_type == "best" else "📝 latest"
         if validation.passed:
             return f"""✅ 검증 통과
 
+커널 타입: {kernel_type_label}
 커널 버전: v{latest_kernel.version}
 커널 파일: {latest_kernel.kernel_file}
 
@@ -294,6 +319,7 @@ stderr:
         else:
             return f"""❌ 검증 실패
 
+커널 타입: {kernel_type_label}
 커널 버전: v{latest_kernel.version}
 커널 파일: {latest_kernel.kernel_file}
 
@@ -333,10 +359,12 @@ stderr:
         if not runner.gpu_available:
             return "❌ GPU가 없어서 벤치마크를 수행할 수 없습니다."
 
-        # 현재 커널 버전 가져오기
-        latest_kernel = state.get_latest_kernel()
-        if latest_kernel is None:
+        # 현재 커널 버전 가져오기 (best 우선, 없으면 latest)
+        kernel, kernel_type = _get_kernel_to_use(state)
+        if kernel is None:
             return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
+
+        latest_kernel = kernel  # 변수명 호환성 유지
 
         # Parse test inputs
         try:
@@ -392,8 +420,10 @@ stderr:
                     f"최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
                 )
 
+        kernel_type_label = "🏆 best" if kernel_type == "best" else "📝 latest"
         output = f"""📊 벤치마크 결과
 
+커널 타입: {kernel_type_label}
 커널 버전: v{latest_kernel.version}
 커널 파일: {latest_kernel.kernel_file}
 

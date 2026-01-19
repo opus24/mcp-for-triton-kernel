@@ -35,14 +35,14 @@ mcp = FastMCP(
     6. [evaluation] run_triton_kernel → 실행 테스트
     7. [evaluation] validate_correctness → 정확성 검증
     8. [evaluation] measure_kernel_time → 시간 측정
-    9. 최소 3번 write 후 모든 테스트 통과 시 → end
+    9. 최소 4번 write 후 모든 테스트 통과 시 → end
     10. [end] get_best_kernel → 최고 성능 커널 반환
 
     ## 중요 규칙
 
     - 각 도구는 허용된 상태에서만 실행 가능
     - 모든 도구 호출은 자동으로 로그 기록
-    - evaluation에서 end로 가려면 최소 3번의 write 필요
+    - evaluation에서 end로 가려면 최소 4번의 write 필요
     - 테스트 실패 시 자동으로 write 상태로 복귀
     """,
 )

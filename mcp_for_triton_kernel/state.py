@@ -59,7 +59,7 @@ class StateManager:
         self.status = Status.START
         self.kernel_versions: List[KernelVersion] = []
         self.write_count = 0
-        self.min_write_count = 3
+        self.min_write_count = 4
         self.first_write_reached = False  # write 상태에 처음 도달했는지
         self.test_code_written = False  # 테스트 코드가 작성되었는지
 

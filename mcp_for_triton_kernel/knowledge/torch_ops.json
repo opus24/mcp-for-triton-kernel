@@ -7,7 +7,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
-    "triton_tips": "가장 기본적인 커널. 1D 블록으로 처리."
+    "triton_tips": "가장 기본적인 커널. 1D 블록으로 처리.",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "vector_mul": {
     "torch_equivalent": "torch.mul(A, B) 또는 A * B",
@@ -17,7 +29,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
-    "triton_tips": "vector_add와 동일한 패턴, 연산만 *로 변경"
+    "triton_tips": "vector_add와 동일한 패턴, 연산만 *로 변경",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "vector_div": {
     "torch_equivalent": "torch.div(A, B) 또는 A / B",
@@ -27,7 +51,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise, 완벽하게 병렬화 가능",
-    "triton_tips": "vector_mul과 동일한 패턴, 연산만 /로 변경. 0으로 나누기 주의."
+    "triton_tips": "vector_mul과 동일한 패턴, 연산만 /로 변경. 0으로 나누기 주의.",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "relu": {
     "torch_equivalent": "torch.nn.functional.relu(x) 또는 torch.relu(x)",
@@ -37,7 +73,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise",
-    "triton_tips": "tl.where(x > 0, x, 0) 또는 tl.maximum(x, 0) 사용"
+    "triton_tips": "tl.where(x > 0, x, 0) 또는 tl.maximum(x, 0) 사용",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "softmax": {
     "torch_equivalent": "torch.nn.functional.softmax(x, dim=-1)",
@@ -47,7 +95,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N) per row",
     "memory_pattern": "row-wise reduction 필요",
-    "triton_tips": "수치 안정성을 위해 max를 먼저 빼야 함. 3-pass: max, sum, divide"
+    "triton_tips": "수치 안정성을 위해 max를 먼저 빼야 함. 3-pass: max, sum, divide",
+    "optimization_techniques": [
+      {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "layer_norm": {
     "torch_equivalent": "torch.nn.functional.layer_norm(x, normalized_shape, weight, bias)",
@@ -57,7 +117,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N) per row",
     "memory_pattern": "row-wise reduction (mean, var 계산)",
-    "triton_tips": "Welford 알고리즘으로 mean/var 동시 계산 가능"
+    "triton_tips": "Welford 알고리즘으로 mean/var 동시 계산 가능",
+    "optimization_techniques": [
+      {
+        "name": "Welford 알고리즘",
+        "description": "Mean과 Variance를 한 번의 패스로 동시에 계산. 메모리 읽기 2배 감소.",
+        "applies_to": ["layernorm", "batchnorm"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "matmul": {
     "torch_equivalent": "torch.matmul(A, B) 또는 A @ B",
@@ -67,7 +139,19 @@
     "output_shape": "(M, N)",
     "complexity": "O(M * N * K)",
     "memory_pattern": "타일링 필요, shared memory 활용",
-    "triton_tips": "BLOCK_M, BLOCK_N, BLOCK_K로 3D 타일링. tl.dot 사용."
+    "triton_tips": "BLOCK_M, BLOCK_N, BLOCK_K로 3D 타일링. tl.dot 사용.",
+    "optimization_techniques": [
+      {
+        "name": "Tiled Processing",
+        "description": "큰 행렬을 작은 타일(BLOCK_M × BLOCK_N × BLOCK_K)로 나눠 처리. 캐시 효율 향상, 큰 행렬도 처리 가능.",
+        "applies_to": ["matmul", "attention"]
+      },
+      {
+        "name": "Register Blocking",
+        "description": "중간 결과를 레지스터에 유지하여 메모리 접근 최소화. 연산 강도 증가.",
+        "applies_to": ["matmul", "attention"]
+      }
+    ]
   },
   "dropout": {
     "torch_equivalent": "torch.nn.functional.dropout(x, p, training)",
@@ -77,7 +161,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise with random",
-    "triton_tips": "tl.rand로 랜덤 생성, philox RNG 시드 필요"
+    "triton_tips": "tl.rand로 랜덤 생성, philox RNG 시드 필요",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Kernel Specialization",
+        "description": "tl.constexpr로 컴파일 타임 상수화, 조건부 컴파일. 불필요한 분기 제거, 최적화된 코드 생성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "gelu": {
     "torch_equivalent": "torch.nn.functional.gelu(x)",
@@ -87,7 +183,19 @@
     "output_shape": "입력과 동일",
     "complexity": "O(N)",
     "memory_pattern": "element-wise",
-    "triton_tips": "근사 버전: x * sigmoid(1.702 * x) 또는 정확한 erf 버전"
+    "triton_tips": "근사 버전: x * sigmoid(1.702 * x) 또는 정확한 erf 버전",
+    "optimization_techniques": [
+      {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"]
+      },
+      {
+        "name": "Kernel Specialization",
+        "description": "tl.constexpr로 컴파일 타임 상수화, 조건부 컴파일. 불필요한 분기 제거, 최적화된 코드 생성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "attention": {
     "torch_equivalent": "torch.nn.functional.scaled_dot_product_attention(Q, K, V)",
@@ -97,7 +205,19 @@
     "output_shape": "(B, H, S, D)",
     "complexity": "O(S^2 * D)",
     "memory_pattern": "Flash Attention 패턴 권장",
-    "triton_tips": "온라인 softmax로 메모리 O(S) 달성 가능"
+    "triton_tips": "온라인 softmax로 메모리 O(S) 달성 가능",
+    "optimization_techniques": [
+      {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention"]
+      },
+      {
+        "name": "Tiled Processing",
+        "description": "큰 행렬을 작은 타일(BLOCK_M × BLOCK_N × BLOCK_K)로 나눠 처리. 캐시 효율 향상, 큰 행렬도 처리 가능.",
+        "applies_to": ["matmul", "attention"]
+      }
+    ]
   },
   "cross_entropy": {
     "torch_equivalent": "torch.nn.functional.cross_entropy(input, target)",
@@ -107,7 +227,19 @@
     "output_shape": "scalar 또는 (N,)",
     "complexity": "O(N * C)",
     "memory_pattern": "row-wise reduction",
-    "triton_tips": "softmax와 log를 fuse하여 한 번에 처리"
+    "triton_tips": "softmax와 log를 fuse하여 한 번에 처리",
+    "optimization_techniques": [
+      {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention"]
+      },
+      {
+        "name": "Kernel Specialization",
+        "description": "tl.constexpr로 컴파일 타임 상수화, 조건부 컴파일. 불필요한 분기 제거, 최적화된 코드 생성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "sum": {
     "torch_equivalent": "torch.sum(x, dim=...)",
@@ -117,7 +249,19 @@
     "output_shape": "dim이 제거된 shape",
     "complexity": "O(N)",
     "memory_pattern": "reduction",
-    "triton_tips": "tl.sum 사용, 큰 reduction은 2-pass 필요할 수 있음"
+    "triton_tips": "tl.sum 사용, 큰 reduction은 2-pass 필요할 수 있음",
+    "optimization_techniques": [
+      {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   },
   "mean": {
     "torch_equivalent": "torch.mean(x, dim=...)",
@@ -127,6 +271,18 @@
     "output_shape": "dim이 제거된 shape",
     "complexity": "O(N)",
     "memory_pattern": "reduction",
-    "triton_tips": "sum / count, count는 컴파일 타임에 알 수 있으면 좋음"
+    "triton_tips": "sum / count, count는 컴파일 타임에 알 수 있으면 좋음",
+    "optimization_techniques": [
+      {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention"]
+      },
+      {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"]
+      }
+    ]
   }
 }

@@ -19,3 +19,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_for_triton_kernel"]
+
+[[tool.uv.index]]
+url = "http://nexus.hyperaccel.ai/repository/pypi-group/simple/"
+default = true
+
+[dependency-groups]
+dev = [
+    "pytest",
+]

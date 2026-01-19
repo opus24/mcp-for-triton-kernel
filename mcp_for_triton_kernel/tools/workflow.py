@@ -12,6 +12,62 @@ from ..state import Status, get_state_manager, log_tool_call
 from ..utils.context_manager import get_context_manager
 from ..utils.runner import TritonRunner
 
+
+def _get_optimization_guide(state, version: int) -> str:
+    """Get optimization guide for current version."""
+    # Load torch_ops.json to get optimization techniques
+    torch_ops_path = KNOWLEDGE_DIR / "torch_ops.json"
+    if not torch_ops_path.exists():
+        return ""
+
+    try:
+        with open(torch_ops_path, "r", encoding="utf-8") as f:
+            ops_data = json.load(f)
+
+        # Find op info for current kernel
+        kernel_name = state.kernel_name
+        if kernel_name and kernel_name in ops_data:
+            op_info = ops_data[kernel_name]
+            if "optimization_techniques" in op_info and op_info["optimization_techniques"]:
+                techniques = op_info["optimization_techniques"][:2]  # 최대 2개
+
+                guide = "\n## 📋 버전별 최적화 가이드\n\n"
+
+                if version == 1:
+                    guide += "**v1 (현재)**: 기본 구현 - 최적화 없이 기본 기능만 구현하세요.\n"
+                    guide += "다음 버전에서 최적화를 적용할 준비를 하세요.\n"
+                elif version == 2:
+                    if len(techniques) > 0:
+                        guide += f"**v2 (현재)**: {techniques[0]['name']} 적용\n"
+                        guide += f"- {techniques[0]['description']}\n"
+                        guide += "- v1의 기본 구현에 첫 번째 최적화 기법만 추가하세요.\n"
+                elif version == 3:
+                    if len(techniques) > 1:
+                        guide += f"**v3 (현재)**: {techniques[1]['name']} 적용\n"
+                        guide += f"- {techniques[1]['description']}\n"
+                        guide += "- v1의 기본 구현에 두 번째 최적화 기법만 추가하세요.\n"
+                    elif len(techniques) > 0:
+                        guide += f"**v3 (현재)**: {techniques[0]['name']}의 변형 적용\n"
+                elif version == 4:
+                    if len(techniques) >= 2:
+                        guide += f"**v4 (현재)**: {techniques[0]['name']} + {techniques[1]['name']} 모두 적용\n"
+                        guide += f"- 첫 번째: {techniques[0]['description']}\n"
+                        guide += f"- 두 번째: {techniques[1]['description']}\n"
+                        guide += "- v2와 v3의 최적화를 모두 결합하세요.\n"
+                    elif len(techniques) > 0:
+                        guide += f"**v4 (현재)**: {techniques[0]['name']}의 고급 변형 적용\n"
+
+                guide += f"\n**진행 상황**: {version}/4 버전 완료\n"
+                if version < 4:
+                    guide += f"다음 버전(v{version + 1})에서는 다른 최적화 기법을 적용하세요.\n"
+
+                return guide
+    except Exception:
+        pass
+
+    return ""
+
+
 # Global runner instance (lazy initialization)
 _runner: Optional[TritonRunner] = None
 
@@ -403,6 +459,9 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
         # Transition to evaluation
         state.transition_to(Status.EVALUATION, "코드 작성 완료")
 
+        # Get optimization guide for current version
+        optimization_guide = _get_optimization_guide(state, version)
+
         return f"""✅ 커널 코드 저장 완료
 
 버전: v{version}
@@ -416,7 +475,7 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
 3. measure_kernel_time() - 성능 측정
 
 현재 작성 횟수: {state.write_count} / {state.min_write_count} (최소 필요)
-
+{optimization_guide}
 ---
 {OPTIMIZATION_TIPS}
 """
@@ -445,10 +504,14 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
         if not runner.gpu_available:
             return "❌ GPU가 없어서 시간 측정을 수행할 수 없습니다."
 
-        # 현재 커널 버전 가져오기
-        latest_kernel = state.get_latest_kernel()
-        if latest_kernel is None:
+        # 현재 커널 버전 가져오기 (best 우선, 없으면 latest)
+        from .execution import _get_kernel_to_use
+
+        kernel, kernel_type = _get_kernel_to_use(state)
+        if kernel is None:
             return "❌ 커널이 없습니다. 먼저 write_kernel_code()로 커널을 작성하세요."
+
+        latest_kernel = kernel  # 변수명 호환성 유지
 
         # Parse test inputs
         try:
@@ -491,8 +554,10 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
                 )
                 transition_info = f"\n\n🔄 상태 전환: evaluation → write\n최소 {remaining}번 더 write가 필요합니다. 추가 최적화를 진행하세요."
 
+        kernel_type_label = "🏆 best" if kernel_type == "best" else "📝 latest"
         return f"""⏱️ 시간 측정 결과
 
+커널 타입: {kernel_type_label}
 커널 버전: v{latest_kernel.version}
 커널 파일: {latest_kernel.kernel_file}
 
