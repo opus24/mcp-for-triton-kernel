@@ -1,12 +1,157 @@
 """Information tools for Triton kernel development."""
 
 import json
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
 
 from ..knowledge import KNOWLEDGE_DIR, load_knowledge
 from ..state import Status, get_state_manager, log_tool_call
+
+# 최적화 기법 카탈로그
+OPTIMIZATION_CATALOG: List[Dict[str, Any]] = [
+    {
+        "name": "Online Reduction",
+        "description": "Flash Attention 스타일의 online max/sum 계산. 여러 패스를 한 번에 처리하여 메모리 읽기 최소화. 새로운 max 발견 시 sum rescale.",
+        "applies_to": ["softmax", "layernorm", "attention", "cross_entropy", "sum", "mean"],
+        "keywords": ["reduction", "softmax", "max", "sum", "mean", "normalize"],
+        "memory_patterns": ["row-wise reduction", "reduction"],
+    },
+    {
+        "name": "Autotune",
+        "description": "BLOCK_SIZE와 num_warps를 자동으로 튜닝하여 다양한 입력 크기에 최적 성능 달성.",
+        "applies_to": ["all"],
+        "keywords": ["any"],
+        "memory_patterns": ["any"],
+    },
+    {
+        "name": "Welford 알고리즘",
+        "description": "Mean과 Variance를 한 번의 패스로 동시에 계산. 메모리 읽기 2배 감소.",
+        "applies_to": ["layernorm", "batchnorm", "variance", "std"],
+        "keywords": ["mean", "variance", "std", "normalize", "layer", "batch"],
+        "memory_patterns": ["row-wise reduction", "reduction"],
+    },
+    {
+        "name": "Tiled Processing",
+        "description": "큰 행렬을 작은 타일(BLOCK_M × BLOCK_N × BLOCK_K)로 나눠 처리. 캐시 효율 향상, 큰 행렬도 처리 가능.",
+        "applies_to": ["matmul", "attention", "conv"],
+        "keywords": ["matmul", "matrix", "gemm", "attention", "conv"],
+        "memory_patterns": ["타일링", "shared memory", "2D"],
+    },
+    {
+        "name": "Register Blocking",
+        "description": "중간 결과를 레지스터에 유지하여 메모리 접근 최소화. 연산 강도 증가.",
+        "applies_to": ["matmul", "attention", "conv"],
+        "keywords": ["matmul", "matrix", "gemm", "attention"],
+        "memory_patterns": ["타일링", "shared memory"],
+    },
+    {
+        "name": "Coalesced Memory Access",
+        "description": "연속된 메모리 접근 패턴 유지, stride 최소화. 메모리 bandwidth 활용 극대화.",
+        "applies_to": ["all"],
+        "keywords": ["element", "vector", "add", "mul", "div"],
+        "memory_patterns": ["element-wise", "완벽하게 병렬화"],
+    },
+    {
+        "name": "Kernel Specialization",
+        "description": "tl.constexpr로 컴파일 타임 상수화, 조건부 컴파일. 불필요한 분기 제거, 최적화된 코드 생성.",
+        "applies_to": ["dropout", "gelu", "cross_entropy"],
+        "keywords": ["random", "activation", "special", "conditional"],
+        "memory_patterns": ["element-wise with random", "element-wise"],
+    },
+]
+
+
+def _analyze_operation(
+    op_name: str, description: str = "", memory_pattern: str = ""
+) -> List[Dict[str, Any]]:
+    """
+    연산 특성을 분석하여 적합한 최적화 기법 2개를 선택합니다.
+
+    Args:
+        op_name: 연산 이름
+        description: 연산 설명
+        memory_pattern: 메모리 접근 패턴
+
+    Returns:
+        추천된 최적화 기법 리스트 (2개)
+    """
+    scores: Dict[str, float] = {}
+    op_name_lower = op_name.lower()
+    description_lower = description.lower()
+    memory_pattern_lower = memory_pattern.lower()
+
+    for tech in OPTIMIZATION_CATALOG:
+        score = 0.0
+        tech_name = tech["name"]
+
+        # 1. applies_to 매칭 (높은 가중치)
+        if "all" in tech["applies_to"]:
+            score += 1.0
+        for applies in tech["applies_to"]:
+            if applies.lower() in op_name_lower:
+                score += 5.0
+
+        # 2. 키워드 매칭
+        for keyword in tech["keywords"]:
+            if keyword == "any":
+                score += 0.5
+            elif keyword in op_name_lower:
+                score += 3.0
+            elif keyword in description_lower:
+                score += 2.0
+
+        # 3. 메모리 패턴 매칭 (높은 가중치)
+        for pattern in tech["memory_patterns"]:
+            if pattern == "any":
+                score += 0.5
+            elif pattern.lower() in memory_pattern_lower:
+                score += 4.0
+
+        scores[tech_name] = score
+
+    # 점수 기준 정렬
+    sorted_techs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+    # 상위 2개 선택 (Autotune이 항상 포함되도록 보장)
+    selected = []
+    autotune_tech = None
+
+    for tech_name, score in sorted_techs:
+        if tech_name == "Autotune":
+            autotune_tech = next(t for t in OPTIMIZATION_CATALOG if t["name"] == tech_name)
+        elif len(selected) < 1 and score > 0:
+            tech = next(t for t in OPTIMIZATION_CATALOG if t["name"] == tech_name)
+            selected.append(
+                {
+                    "name": tech["name"],
+                    "description": tech["description"],
+                    "applies_to": tech["applies_to"],
+                }
+            )
+
+    # 첫 번째가 없으면 Coalesced Memory Access 추가
+    if len(selected) == 0:
+        coalesced = next(t for t in OPTIMIZATION_CATALOG if t["name"] == "Coalesced Memory Access")
+        selected.append(
+            {
+                "name": coalesced["name"],
+                "description": coalesced["description"],
+                "applies_to": coalesced["applies_to"],
+            }
+        )
+
+    # Autotune 항상 두 번째로 추가
+    if autotune_tech:
+        selected.append(
+            {
+                "name": autotune_tech["name"],
+                "description": autotune_tech["description"],
+                "applies_to": autotune_tech["applies_to"],
+            }
+        )
+
+    return selected[:2]
 
 
 def register_info_tools(mcp: FastMCP) -> None:
@@ -417,3 +562,158 @@ def solve(input: torch.Tensor) -> torch.Tensor:
             return f"Unknown pattern: {pattern}\nAvailable patterns: {available}"
 
         return templates[pattern]
+
+    @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
+    def analyze_and_save_optimization(
+        op_name: str,
+        torch_equivalent: str,
+        signature: str,
+        description: str,
+        input_shapes: str,
+        output_shape: str,
+        complexity: str,
+        memory_pattern: str,
+        triton_tips: str,
+    ) -> str:
+        """
+        연산을 분석하여 적합한 최적화 기법 2개를 선택하고 torch_ops.json에 저장합니다.
+
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
+        새로운 연산을 등록하거나 기존 연산의 최적화 기법을 업데이트할 때 사용합니다.
+
+        Args:
+            op_name: 연산 이름 (예: "softmax", "matmul", "relu")
+            torch_equivalent: PyTorch 동등 표현 (예: "torch.nn.functional.softmax(x, dim=-1)")
+            signature: 함수 시그니처 (예: "softmax(x: Tensor, dim: int = -1) -> Tensor")
+            description: 연산 설명 (예: "exp(x - max(x)) / sum(exp(x - max(x)))")
+            input_shapes: 입력 shape 정보 (예: "보통 (batch, seq_len, hidden)")
+            output_shape: 출력 shape 정보 (예: "입력과 동일")
+            complexity: 복잡도 (예: "O(N) per row")
+            memory_pattern: 메모리 접근 패턴 (예: "row-wise reduction 필요")
+            triton_tips: Triton 구현 팁
+
+        Returns:
+            분석 결과 및 저장 결과
+        """
+        state = get_state_manager()
+
+        # 연산 분석하여 최적화 기법 선택
+        optimization_techniques = _analyze_operation(
+            op_name=op_name,
+            description=description,
+            memory_pattern=memory_pattern,
+        )
+
+        # 새 연산 데이터 구성
+        op_data = {
+            "torch_equivalent": torch_equivalent,
+            "signature": signature,
+            "description": description,
+            "input_shapes": input_shapes,
+            "output_shape": output_shape,
+            "complexity": complexity,
+            "memory_pattern": memory_pattern,
+            "triton_tips": triton_tips,
+            "optimization_techniques": optimization_techniques,
+        }
+
+        # torch_ops.json 읽기
+        torch_ops_path = KNOWLEDGE_DIR / "torch_ops.json"
+
+        if torch_ops_path.exists():
+            with open(torch_ops_path, "r", encoding="utf-8") as f:
+                ops_data = json.load(f)
+        else:
+            ops_data = {}
+
+        # 연산 추가/업데이트
+        normalized_name = op_name.lower().strip()
+        is_update = normalized_name in ops_data
+        ops_data[normalized_name] = op_data
+
+        # torch_ops.json 저장
+        with open(torch_ops_path, "w", encoding="utf-8") as f:
+            json.dump(ops_data, f, ensure_ascii=False, indent=2)
+
+        # 상태 힌트
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
+
+        # 결과 포맷팅
+        action = "업데이트" if is_update else "추가"
+        techniques_str = "\n".join(
+            [
+                f"  {i+1}. **{tech['name']}**: {tech['description']}"
+                for i, tech in enumerate(optimization_techniques)
+            ]
+        )
+
+        return f"""# ✅ 연산 분석 완료: {normalized_name}
+
+## 📊 분석 결과
+
+### 추천 최적화 기법 (2개)
+{techniques_str}
+
+### 4가지 버전 구성 가이드
+- **v1**: 기본 구현 (최적화 없음)
+- **v2**: {optimization_techniques[0]['name']}만 적용
+- **v3**: {optimization_techniques[1]['name'] if len(optimization_techniques) > 1 else optimization_techniques[0]['name']}만 적용
+- **v4**: {optimization_techniques[0]['name']} + {optimization_techniques[1]['name'] if len(optimization_techniques) > 1 else '추가 최적화'} 모두 적용
+
+## 💾 저장 결과
+
+- **파일**: `{torch_ops_path}`
+- **작업**: {action}
+- **연산명**: `{normalized_name}`
+{status_hint}"""
+
+    @mcp.tool()
+    @log_tool_call(allowed_statuses=[Status.START])
+    def get_optimization_catalog() -> str:
+        """
+        사용 가능한 모든 최적화 기법 카탈로그를 반환합니다.
+
+        이 도구는 'start' 상태에서만 사용할 수 있습니다.
+        어떤 최적화 기법들이 있는지 확인할 때 사용합니다.
+
+        Returns:
+            최적화 기법 목록 및 설명
+        """
+        state = get_state_manager()
+
+        catalog_str = ""
+        for i, tech in enumerate(OPTIMIZATION_CATALOG, 1):
+            applies_to = ", ".join(tech["applies_to"])
+            catalog_str += f"""
+### {i}. {tech["name"]}
+
+**설명**: {tech["description"]}
+
+**적용 대상**: {applies_to}
+
+---
+"""
+
+        status_hint = ""
+        if state.can_transition_to_write():
+            status_hint = "\n\n✅ 모든 정보 수집 완료! 상태가 'write'로 전환되었습니다."
+        else:
+            missing = [t for t, done in state.info_collected.items() if not done]
+            status_hint = f"\n\n📋 아직 수집이 필요한 정보: {', '.join(missing)}"
+
+        return f"""# 🚀 Triton 커널 최적화 기법 카탈로그
+
+총 {len(OPTIMIZATION_CATALOG)}개의 최적화 기법이 등록되어 있습니다.
+{catalog_str}
+
+## 사용법
+
+`analyze_and_save_optimization` 도구를 사용하면 연산 특성을 분석하여
+자동으로 적합한 최적화 기법 2개를 선택하고 `torch_ops.json`에 저장합니다.
+{status_hint}"""

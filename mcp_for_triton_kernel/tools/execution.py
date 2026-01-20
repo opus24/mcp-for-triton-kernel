@@ -20,18 +20,19 @@ def get_runner() -> TritonRunner:
 
 
 def _get_kernel_to_use(state):
-    """Get the best kernel if available, otherwise latest kernel.
+    """Get the latest kernel if available, otherwise best kernel.
 
-    This prioritizes the best performing kernel (lowest mean time)
-    but falls back to the latest kernel if no best kernel is available.
+    This prioritizes the latest kernel (most recently written)
+    for validation and testing purposes. The latest kernel should
+    be validated and measured first before comparing with other versions.
     """
-    best_kernel = state.get_best_kernel()
-    if best_kernel is not None:
-        return best_kernel, "best"
-
     latest_kernel = state.get_latest_kernel()
     if latest_kernel is not None:
         return latest_kernel, "latest"
+
+    best_kernel = state.get_best_kernel()
+    if best_kernel is not None:
+        return best_kernel, "best"
 
     return None, None
 

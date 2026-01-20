@@ -583,6 +583,21 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
         """
         state = get_state_manager()
 
+        # 검증 통과 + 시간 측정된 커널만 비교 대상
+        valid_kernels = [
+            kv
+            for kv in state.kernel_versions
+            if kv.validation_passed and kv.mean_time_ms is not None
+        ]
+
+        # 시간 측정되지 않은 검증 통과 커널 확인
+        validated_but_not_timed = [
+            kv for kv in state.kernel_versions if kv.validation_passed and kv.mean_time_ms is None
+        ]
+
+        # 검증 실패 또는 미검증 커널 확인
+        not_validated = [kv for kv in state.kernel_versions if not kv.validation_passed]
+
         best = state.get_best_kernel()
 
         if best is None:
@@ -593,6 +608,15 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
 
         # 마크다운 로그 완료
         state.finalize_log()
+
+        # 경고 메시지 생성
+        warnings = ""
+        if validated_but_not_timed:
+            versions = ", ".join([f"v{kv.version}" for kv in validated_but_not_timed])
+            warnings += f"\n⚠️ **시간 미측정 커널**: {versions} (성능 비교에서 제외됨)\n"
+        if not_validated:
+            versions = ", ".join([f"v{kv.version}" for kv in not_validated])
+            warnings += f"\n⚠️ **검증 실패/미검증 커널**: {versions} (성능 비교에서 제외됨)\n"
 
         # Generate comparison table
         comparison = "## 모든 버전 비교\n\n"
@@ -610,6 +634,16 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
                 f"{mean_time} | {min_time} | {filename} |\n"
             )
 
+        # 성능 비교 요약 추가
+        if len(valid_kernels) > 1:
+            sorted_kernels = sorted(valid_kernels, key=lambda kv: kv.mean_time_ms)
+            fastest = sorted_kernels[0]
+            slowest = sorted_kernels[-1]
+            speedup = (
+                slowest.mean_time_ms / fastest.mean_time_ms if fastest.mean_time_ms > 0 else 1.0
+            )
+            comparison += f"\n**성능 비교**: v{fastest.version}이 v{slowest.version}보다 {speedup:.2f}x 빠름\n"
+
         return f"""🏆 최고 성능 커널
 
 ## 선택된 버전: v{best.version}
@@ -618,7 +652,8 @@ write 상태에 처음 도달했을 때는 반드시 write_test_code()를 먼저
 - **평균 시간**: {best.mean_time_ms:.4f} ms
 - **최소 시간**: {best.min_time_ms:.4f} ms
 - **최대 시간**: {best.max_time_ms:.4f} ms
-
+- **비교 대상 커널 수**: {len(valid_kernels)}개 (검증 통과 + 시간 측정)
+{warnings}
 {comparison}
 
 ## 최종 커널 코드

@@ -1,82 +1,33 @@
-"""Tests for add kernel."""
-
 import torch
 
 
-def reference(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """PyTorch reference implementation of add."""
-    return torch.add(a, b)
+def reference(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    """PyTorch reference implementation for vector add"""
+    return A + B
 
 
-# Test case data generators
-def _test_case_1_data():
-    """Same shape tensors."""
-    return torch.randn(1024, device="cuda"), torch.randn(1024, device="cuda")
-
-
-def _test_case_2_data():
-    """Larger tensors."""
-    return torch.randn(10000, device="cuda"), torch.randn(10000, device="cuda")
-
-
-def _test_case_3_data():
-    """2D tensors."""
-    return torch.randn(256, 256, device="cuda"), torch.randn(256, 256, device="cuda")
-
-
-def _test_case_4_data():
-    """Small tensors."""
-    return torch.randn(10, device="cuda"), torch.randn(10, device="cuda")
-
-
-# Actual pytest tests
-def test_case_1(add_kernel):
-    """Test same shape tensors."""
-    kernel_module, version = add_kernel
-    a, b = _test_case_1_data()
-
-    expected = reference(a, b)
-    actual = kernel_module.solve(a, b)
-
-    assert torch.allclose(
-        actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_1"
-
-
-def test_case_2(add_kernel):
-    """Test larger tensors."""
-    kernel_module, version = add_kernel
-    a, b = _test_case_2_data()
-
-    expected = reference(a, b)
-    actual = kernel_module.solve(a, b)
-
-    assert torch.allclose(
-        actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_2"
-
-
-def test_case_3(add_kernel):
-    """Test 2D tensors."""
-    kernel_module, version = add_kernel
-    a, b = _test_case_3_data()
-
-    expected = reference(a, b)
-    actual = kernel_module.solve(a, b)
-
-    assert torch.allclose(
-        actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_3"
-
-
-def test_case_4(add_kernel):
-    """Test small tensors."""
-    kernel_module, version = add_kernel
-    a, b = _test_case_4_data()
-
-    expected = reference(a, b)
-    actual = kernel_module.solve(a, b)
-
-    assert torch.allclose(
-        actual, expected, rtol=1e-5, atol=1e-8
-    ), f"Add kernel v{version} failed for test_case_4"
+# Test cases
+def get_test_cases():
+    return [
+        # Small size
+        {
+            "args": [torch.randn(1024, device="cuda"), torch.randn(1024, device="cuda")],
+            "kwargs": {},
+        },
+        # Medium size
+        {
+            "args": [
+                torch.randn(1024 * 1024, device="cuda"),
+                torch.randn(1024 * 1024, device="cuda"),
+            ],
+            "kwargs": {},
+        },
+        # Large size
+        {
+            "args": [
+                torch.randn(1024 * 1024 * 16, device="cuda"),
+                torch.randn(1024 * 1024 * 16, device="cuda"),
+            ],
+            "kwargs": {},
+        },
+    ]

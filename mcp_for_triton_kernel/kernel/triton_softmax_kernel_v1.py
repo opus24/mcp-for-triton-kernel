@@ -7,70 +7,66 @@ import triton.language as tl
 def softmax_kernel(
     input_ptr,
     output_ptr,
-    N,
-    stride_row,
+    n_rows,
+    n_cols,
+    input_row_stride,
+    output_row_stride,
     BLOCK_SIZE: tl.constexpr,
 ):
-    """Basic softmax kernel with numerical stability (no optimizations)."""
+    """Softmax kernel - v1 (basic 3-pass implementation)"""
+    # Get row index
     row_idx = tl.program_id(0)
+
+    # Calculate row start pointers
+    input_row_start = input_ptr + row_idx * input_row_stride
+    output_row_start = output_ptr + row_idx * output_row_stride
+
+    # Create column offsets
     col_offsets = tl.arange(0, BLOCK_SIZE)
-    mask = col_offsets < N
+    mask = col_offsets < n_cols
 
     # Load row data
-    row_start = row_idx * stride_row
-    x = tl.load(input_ptr + row_start + col_offsets, mask=mask, other=-float("inf"))
+    row_data = tl.load(input_row_start + col_offsets, mask=mask, other=-float("inf"))
 
-    # Numerical stability: subtract max
-    x_max = tl.max(x, axis=0)
-    x_shifted = x - x_max
+    # Pass 1: Find max for numerical stability
+    row_max = tl.max(row_data, axis=0)
 
-    # Compute exp
-    x_exp = tl.exp(x_shifted)
+    # Pass 2: Compute exp(x - max)
+    numerator = tl.exp(row_data - row_max)
 
-    # Compute sum
-    x_sum = tl.sum(x_exp, axis=0)
+    # Pass 3: Compute sum and normalize
+    denominator = tl.sum(numerator, axis=0)
+    softmax_output = numerator / denominator
 
-    # Normalize
-    output = x_exp / x_sum
-
-    # Store output
-    tl.store(output_ptr + row_start + col_offsets, output, mask=mask)
+    # Store result
+    tl.store(output_row_start + col_offsets, softmax_output, mask=mask)
 
 
-def solve(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
-    """Wrapper function to call the softmax kernel.
+def solve(x: torch.Tensor) -> torch.Tensor:
+    """Entry point for softmax operation"""
+    x = x.contiguous()
+    original_shape = x.shape
 
-    Args:
-        x: Input tensor
-        dim: Dimension along which softmax is computed (default: -1)
+    # Reshape to 2D
+    x_2d = x.view(-1, x.shape[-1])
+    n_rows, n_cols = x_2d.shape
 
-    Returns:
-        Output tensor with softmax applied along dim
-    """
-    assert x.device.type == "cuda", "Input tensor must be on CUDA"
+    output = torch.empty_like(x_2d)
 
-    # Handle negative dim
-    if dim < 0:
-        dim = x.dim() + dim
+    # BLOCK_SIZE must be >= n_cols (power of 2)
+    BLOCK_SIZE = triton.next_power_of_2(n_cols)
 
-    # For simplicity, handle 2D case with dim=-1 (last dimension)
-    # This can be extended for other cases
-    if x.dim() == 2 and dim == 1:
-        output = torch.empty_like(x)
-        num_rows, num_cols = x.shape
+    # One program per row
+    grid = (n_rows,)
 
-        # Ensure contiguous
-        if not x.is_contiguous():
-            x = x.contiguous()
+    softmax_kernel[grid](
+        x_2d,
+        output,
+        n_rows,
+        n_cols,
+        x_2d.stride(0),
+        output.stride(0),
+        BLOCK_SIZE=BLOCK_SIZE,
+    )
 
-        stride_row = x.stride(0)
-
-        # Fixed BLOCK_SIZE (no autotune)
-        BLOCK_SIZE = 256
-        grid = (num_rows,)
-
-        softmax_kernel[grid](x, output, num_cols, stride_row, BLOCK_SIZE=BLOCK_SIZE)
-        return output
-    else:
-        # Fallback to PyTorch for other cases
-        return torch.nn.functional.softmax(x, dim=dim)
+    return output.view(original_shape)

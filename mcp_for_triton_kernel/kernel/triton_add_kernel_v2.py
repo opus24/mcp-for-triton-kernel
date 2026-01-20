@@ -3,60 +3,57 @@ import triton
 import triton.language as tl
 
 
-@triton.autotune(
-    configs=[
-        triton.Config({"BLOCK_SIZE": 128}),
-        triton.Config({"BLOCK_SIZE": 256}),
-        triton.Config({"BLOCK_SIZE": 512}),
-        triton.Config({"BLOCK_SIZE": 1024}),
-    ],
-    key=["N"],
-)
 @triton.jit
 def add_kernel(
-    a_ptr,
-    b_ptr,
+    A_ptr,
+    B_ptr,
     output_ptr,
     N,
     BLOCK_SIZE: tl.constexpr,
 ):
-    """Element-wise addition kernel with autotune."""
+    """Vector add kernel - v2 (Coalesced Memory Access)"""
+    # Get program ID
     pid = tl.program_id(0)
-    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+
+    # Calculate offsets with coalesced access pattern
+    # Each thread accesses consecutive memory locations
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+
+    # Create mask for boundary check
     mask = offsets < N
 
-    # Load inputs
-    a = tl.load(a_ptr + offsets, mask=mask)
-    b = tl.load(b_ptr + offsets, mask=mask)
+    # Load data with coalesced access
+    # Using eviction policy for better cache behavior
+    a = tl.load(A_ptr + offsets, mask=mask, eviction_policy="evict_last")
+    b = tl.load(B_ptr + offsets, mask=mask, eviction_policy="evict_last")
 
     # Perform addition
     result = a + b
 
-    # Store output
-    tl.store(output_ptr + offsets, result, mask=mask)
+    # Store result with coalesced access
+    tl.store(output_ptr + offsets, result, mask=mask, eviction_policy="evict_first")
 
 
-def solve(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """Wrapper function to call the add kernel with autotune.
+def solve(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    """Entry point for vector add operation"""
+    # Ensure inputs are contiguous for coalesced access
+    A = A.contiguous()
+    B = B.contiguous()
 
-    Args:
-        a: First input tensor
-        b: Second input tensor (must have same shape as a)
+    # Get size
+    N = A.numel()
 
-    Returns:
-        Output tensor containing a + b
-    """
-    # Ensure tensors are on CUDA and have same shape
-    assert a.device.type == "cuda", "Input tensors must be on CUDA"
-    assert b.device.type == "cuda", "Input tensors must be on CUDA"
-    assert a.shape == b.shape, "Input tensors must have the same shape"
+    # Allocate output (contiguous by default)
+    output = torch.empty_like(A)
 
-    output = torch.empty_like(a)
-    N = a.numel()
+    # Optimized block size for coalesced access
+    BLOCK_SIZE = 1024
 
-    def grid(meta):
-        return (triton.cdiv(N, meta["BLOCK_SIZE"]),)
+    # Calculate grid size
+    grid = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE"]),)
 
-    add_kernel[grid](a, b, output, N)
+    # Launch kernel
+    add_kernel[grid](A, B, output, N, BLOCK_SIZE=BLOCK_SIZE)
 
     return output
